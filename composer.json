@@ -1,5 +1,13 @@
 {
     "name": "git-mz/tagmatch",
+    "description": "PHP text keyword matching and automatic tag replacement library.",
+    "type": "library",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
     "authors": [
         {
             "name": "git-mz",
@@ -8,7 +16,12 @@
     ],
     "autoload": {
         "psr-4": {
-            "tagmatch\\": "src/tagmatch"
+            "tagmatch\\": "src/tagmatch/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
         }
     }
 }
