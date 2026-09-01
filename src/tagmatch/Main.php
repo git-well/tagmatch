@@ -6,6 +6,7 @@ namespace tagmatch;
  * 文本关键词匹配类库。
  *
  * 匹配规则：左边优先；同一起点存在多个关键词时，优先匹配最长关键词。
+ * 使用 Unicode Trie，避免每个文本位置都遍历全部关键词。
  */
 class Main
 {
@@ -13,6 +14,17 @@ class Main
      * @var array<int, array<string, mixed>>
      */
     protected array $wordData = [];
+
+    /**
+     * Trie 根节点。
+     * 每个节点包含 children 和 terminal。
+     *
+     * @var array<string, mixed>
+     */
+    protected array $trie = [
+        'children' => [],
+        'terminal' => null,
+    ];
 
     /**
      * 设置标签数据。
@@ -23,6 +35,10 @@ class Main
     public function setTree(array $words = []): self
     {
         $this->wordData = [];
+        $this->trie = [
+            'children' => [],
+            'terminal' => null,
+        ];
 
         foreach ($words as $word) {
             if (!is_array($word) || !isset($word['word'])) {
@@ -39,10 +55,15 @@ class Main
             $this->wordData[] = $word;
         }
 
-        // 同一起点发生冲突时，最长关键词优先。
+        // Trie 本身已经保证同一起点的最长匹配；这里保留稳定的长度排序，
+        // 方便兼容旧代码中对 wordData 的预期。
         usort($this->wordData, static function (array $a, array $b): int {
             return $b['len'] <=> $a['len'];
         });
+
+        foreach ($this->wordData as $word) {
+            $this->insert($word);
+        }
 
         return $this;
     }
@@ -50,7 +71,7 @@ class Main
     /**
      * 获取文本中的标签匹配结果。
      *
-     * 匹配采用“左边优先 + 最长匹配”，不会修改原始文本来制造匹配状态。
+     * 匹配采用“左边优先 + 最长匹配”，不会修改原始文本。
      *
      * @param string $content
      * @param int $wordNum 0 表示返回全部结果。
@@ -58,6 +79,10 @@ class Main
      */
     public function getTagWord(string $content, int $wordNum = 0): array
     {
+        if ($content === '' || $this->trie['children'] === []) {
+            return [];
+        }
+
         $matches = [];
         $length = mb_strlen($content, 'UTF-8');
         $cursor = 0;
@@ -93,6 +118,10 @@ class Main
      */
     public function replace(string $content, string $newclass = '', bool $replaceOne = false): string
     {
+        if ($content === '' || $this->trie['children'] === []) {
+            return $content;
+        }
+
         $length = mb_strlen($content, 'UTF-8');
         $cursor = 0;
         $result = '';
@@ -125,7 +154,33 @@ class Main
     }
 
     /**
-     * 从指定字符位置寻找最长关键词。
+     * 将关键词插入 Unicode Trie。
+     *
+     * @param array<string, mixed> $word
+     * @return void
+     */
+    protected function insert(array $word): void
+    {
+        $node =& $this->trie;
+        $chars = preg_split('//u', $word['word'], -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($chars as $char) {
+            if (!isset($node['children'][$char])) {
+                $node['children'][$char] = [
+                    'children' => [],
+                    'terminal' => null,
+                ];
+            }
+
+            $node =& $node['children'][$char];
+        }
+
+        $node['terminal'] = $word;
+        unset($node);
+    }
+
+    /**
+     * 从指定字符位置开始寻找最长关键词。
      *
      * @param string $content
      * @param int $offset
@@ -133,13 +188,25 @@ class Main
      */
     protected function matchAt(string $content, int $offset): ?array
     {
-        foreach ($this->wordData as $word) {
-            $candidate = mb_substr($content, $offset, $word['len'], 'UTF-8');
-            if ($candidate === $word['word']) {
-                return $word;
+        $node =& $this->trie;
+        $length = mb_strlen($content, 'UTF-8');
+        $matched = null;
+
+        for ($i = $offset; $i < $length; $i++) {
+            $char = mb_substr($content, $i, 1, 'UTF-8');
+
+            if (!isset($node['children'][$char])) {
+                break;
+            }
+
+            $node =& $node['children'][$char];
+
+            if ($node['terminal'] !== null) {
+                $matched = $node['terminal'];
             }
         }
 
-        return null;
+        unset($node);
+        return $matched;
     }
 }
